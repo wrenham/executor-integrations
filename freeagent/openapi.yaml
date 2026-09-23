@@ -1,0 +1,1732 @@
+openapi: 3.0.3
+info:
+  title: FreeAgent API
+  version: "2.0.0"
+  description: |
+    FreeAgent accounting API v2, scoped to the bookkeeping surface Wrenham's
+    agents need: company, users, bank accounts, bank transactions and their
+    explanations, contacts, invoices, bills, expenses, projects, categories,
+    journal sets, attachments and accounting summaries.
+
+    One FreeAgent company per connection. Every OAuth authorisation is tied
+    to the company chosen at login, so multi-company work means one
+    connection per company under this integration.
+
+    Conventions: resources are identified by their full URL (e.g.
+    https://api.freeagent.com/v2/contacts/123) and cross-references such as
+    `contact`, `category`, `bank_account`, `project` are URL strings, never bare
+    ids. Dates are ISO 8601 (YYYY-MM-DD); timestamps are RFC 3339. Monetary
+    values are decimal strings ("123.45"). List endpoints wrap the array in an
+    object keyed by the plural resource name, paginate with `page`/`per_page`
+    (max 100) and return a `Link` header with rel="next" when more exist.
+    `updated_since` takes an RFC 3339 timestamp and is the cheapest way to sync.
+
+    Rate limit: 120 requests per minute and 3600 per hour per app per user;
+    429 responses carry a Retry-After header. Fan out across companies
+    sequentially rather than in parallel.
+
+    Writes that move money or change filed positions (explanations, invoices
+    marked as sent, bills, journal sets) are consequential; anything that
+    deletes is irreversible. Confirm before calling them.
+servers:
+  - url: https://api.freeagent.com/v2
+    description: Production
+security:
+  - oauth2: []
+tags:
+  - name: Company
+  - name: Users
+  - name: BankAccounts
+  - name: BankTransactions
+  - name: BankTransactionExplanations
+  - name: Contacts
+  - name: Invoices
+  - name: Bills
+  - name: Expenses
+  - name: Projects
+  - name: Categories
+  - name: JournalSets
+  - name: Attachments
+  - name: Accounting
+
+paths:
+  # ---------------------------------------------------------------- Company
+  /company:
+    get:
+      tags: [Company]
+      operationId: getCompany
+      summary: Get the company this connection is authorised for
+      responses:
+        "200":
+          description: Company details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  company: { $ref: "#/components/schemas/Company" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /company/tax_timeline:
+    get:
+      tags: [Company]
+      operationId: getTaxTimeline
+      summary: Upcoming tax deadlines and amounts for the company
+      responses:
+        "200":
+          description: Timeline items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timeline_items:
+                    type: array
+                    items: { $ref: "#/components/schemas/TimelineItem" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------------ Users
+  /users/me:
+    get:
+      tags: [Users]
+      operationId: getCurrentUser
+      summary: Get the authorised user (useful as a health check)
+      responses:
+        "200":
+          description: The current user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: "#/components/schemas/User" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /users:
+    get:
+      tags: [Users]
+      operationId: listUsers
+      summary: List users on the company
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/perPage"
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: "#/components/schemas/User" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ---------------------------------------------------------- Bank accounts
+  /bank_accounts:
+    get:
+      tags: [BankAccounts]
+      operationId: listBankAccounts
+      summary: List bank, credit card and PayPal accounts
+      parameters:
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: [standard_bank_accounts, credit_card_accounts, paypal_accounts]
+          description: Filter by account type; omit for all
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/perPage"
+      responses:
+        "200":
+          description: Bank accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bank_accounts:
+                    type: array
+                    items: { $ref: "#/components/schemas/BankAccount" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [BankAccounts]
+      operationId: createBankAccount
+      summary: Create a bank account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bank_account]
+              properties:
+                bank_account: { $ref: "#/components/schemas/BankAccountInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bank_account: { $ref: "#/components/schemas/BankAccount" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /bank_accounts/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [BankAccounts]
+      operationId: getBankAccount
+      summary: Get a bank account
+      responses:
+        "200":
+          description: Bank account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bank_account: { $ref: "#/components/schemas/BankAccount" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [BankAccounts]
+      operationId: updateBankAccount
+      summary: Update a bank account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bank_account]
+              properties:
+                bank_account: { $ref: "#/components/schemas/BankAccountInput" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bank_account: { $ref: "#/components/schemas/BankAccount" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------ Bank transactions
+  /bank_transactions:
+    get:
+      tags: [BankTransactions]
+      operationId: listBankTransactions
+      summary: List bank transactions for a bank account
+      description: >
+        `bank_account` is required. `view=unexplained` is the reconciliation
+        work queue. `last_uploaded=true` returns only the most recent statement
+        upload.
+      parameters:
+        - name: bank_account
+          in: query
+          required: true
+          schema: { type: string, format: uri }
+          description: Bank account URL
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: [all, unexplained, explained, manual, imported, marked_for_review]
+        - $ref: "#/components/parameters/fromDate"
+        - $ref: "#/components/parameters/toDate"
+        - $ref: "#/components/parameters/updatedSince"
+        - name: last_uploaded
+          in: query
+          schema: { type: boolean }
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/perPage"
+      responses:
+        "200":
+          description: Bank transactions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bank_transactions:
+                    type: array
+                    items: { $ref: "#/components/schemas/BankTransaction" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /bank_transactions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [BankTransactions]
+      operationId: getBankTransaction
+      summary: Get a bank transaction including its explanations
+      responses:
+        "200":
+          description: Bank transaction
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bank_transaction: { $ref: "#/components/schemas/BankTransaction" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [BankTransactions]
+      operationId: deleteBankTransaction
+      summary: Delete a bank transaction (irreversible; only unexplained/manual)
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+  /bank_transactions/statement:
+    post:
+      tags: [BankTransactions]
+      operationId: uploadStatement
+      summary: Upload bank transactions (JSON statement) to a bank account
+      description: >
+        Creates imported transactions. Supply `fitid` per line to make repeat
+        uploads idempotent; FreeAgent drops duplicates by fitid.
+      parameters:
+        - name: bank_account
+          in: query
+          required: true
+          schema: { type: string, format: uri }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [statement]
+              properties:
+                statement:
+                  type: array
+                  items: { $ref: "#/components/schemas/StatementLine" }
+      responses:
+        "200": { description: Accepted }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------ Bank transaction explanations
+  /bank_transaction_explanations:
+    get:
+      tags: [BankTransactionExplanations]
+      operationId: listBankTransactionExplanations
+      summary: List explanations for a bank account
+      parameters:
+        - name: bank_account
+          in: query
+          required: true
+          schema: { type: string, format: uri }
+        - $ref: "#/components/parameters/fromDate"
+        - $ref: "#/components/parameters/toDate"
+        - $ref: "#/components/parameters/updatedSince"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/perPage"
+      responses:
+        "200":
+          description: Explanations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bank_transaction_explanations:
+                    type: array
+                    items: { $ref: "#/components/schemas/BankTransactionExplanation" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [BankTransactionExplanations]
+      operationId: createBankTransactionExplanation
+      summary: Explain a bank transaction (moves money in the books)
+      description: >
+        Pass `bank_transaction` to explain an existing imported/manual
+        transaction, or `bank_account` + `dated_on` to create a manual
+        transaction and explain it in one go. Exactly one of `category`,
+        `paid_invoice`, `paid_bill`, `transfer_bank_account` or `paid_user`
+        decides what the explanation is.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bank_transaction_explanation]
+              properties:
+                bank_transaction_explanation:
+                  $ref: "#/components/schemas/BankTransactionExplanationInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bank_transaction_explanation:
+                    $ref: "#/components/schemas/BankTransactionExplanation"
+        default: { $ref: "#/components/responses/Error" }
+
+  /bank_transaction_explanations/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [BankTransactionExplanations]
+      operationId: getBankTransactionExplanation
+      summary: Get an explanation
+      responses:
+        "200":
+          description: Explanation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bank_transaction_explanation:
+                    $ref: "#/components/schemas/BankTransactionExplanation"
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [BankTransactionExplanations]
+      operationId: updateBankTransactionExplanation
+      summary: Update an explanation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bank_transaction_explanation]
+              properties:
+                bank_transaction_explanation:
+                  $ref: "#/components/schemas/BankTransactionExplanationInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bank_transaction_explanation:
+                    $ref: "#/components/schemas/BankTransactionExplanation"
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [BankTransactionExplanations]
+      operationId: deleteBankTransactionExplanation
+      summary: Delete an explanation (returns the transaction to unexplained)
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+  # --------------------------------------------------------------- Contacts
+  /contacts:
+    get:
+      tags: [Contacts]
+      operationId: listContacts
+      summary: List contacts (customers and suppliers)
+      parameters:
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: [all, active, clients, suppliers, clients_active, suppliers_active, hidden]
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, -name, created_at, -created_at, updated_at, -updated_at]
+        - $ref: "#/components/parameters/updatedSince"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/perPage"
+      responses:
+        "200":
+          description: Contacts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contacts:
+                    type: array
+                    items: { $ref: "#/components/schemas/Contact" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Contacts]
+      operationId: createContact
+      summary: Create a contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contact]
+              properties:
+                contact: { $ref: "#/components/schemas/ContactInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contact: { $ref: "#/components/schemas/Contact" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /contacts/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Contacts]
+      operationId: getContact
+      summary: Get a contact
+      responses:
+        "200":
+          description: Contact
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contact: { $ref: "#/components/schemas/Contact" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Contacts]
+      operationId: updateContact
+      summary: Update a contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contact]
+              properties:
+                contact: { $ref: "#/components/schemas/ContactInput" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contact: { $ref: "#/components/schemas/Contact" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Contacts]
+      operationId: deleteContact
+      summary: Delete a contact (only if it has no invoices, bills or explanations)
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+  # --------------------------------------------------------------- Invoices
+  /invoices:
+    get:
+      tags: [Invoices]
+      operationId: listInvoices
+      summary: List sales invoices
+      parameters:
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum:
+              - all
+              - recent_open_or_overdue
+              - open
+              - overdue
+              - open_or_overdue
+              - draft
+              - scheduled_to_email
+              - thank_you_emails
+              - reminder_emails
+              - last_3_months
+              - last_12_months
+        - name: contact
+          in: query
+          schema: { type: string, format: uri }
+        - name: project
+          in: query
+          schema: { type: string, format: uri }
+        - name: nested_invoice_items
+          in: query
+          schema: { type: boolean }
+          description: Include invoice_items inline
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [created_at, -created_at, updated_at, -updated_at, dated_on, -dated_on]
+        - $ref: "#/components/parameters/updatedSince"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/perPage"
+      responses:
+        "200":
+          description: Invoices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoices:
+                    type: array
+                    items: { $ref: "#/components/schemas/Invoice" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Invoices]
+      operationId: createInvoice
+      summary: Create a draft invoice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invoice]
+              properties:
+                invoice: { $ref: "#/components/schemas/InvoiceInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoice: { $ref: "#/components/schemas/Invoice" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /invoices/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Invoices]
+      operationId: getInvoice
+      summary: Get an invoice with its items
+      responses:
+        "200":
+          description: Invoice
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoice: { $ref: "#/components/schemas/Invoice" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Invoices]
+      operationId: updateInvoice
+      summary: Update an invoice (drafts only, or limited fields once sent)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invoice]
+              properties:
+                invoice: { $ref: "#/components/schemas/InvoiceInput" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  invoice: { $ref: "#/components/schemas/Invoice" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Invoices]
+      operationId: deleteInvoice
+      summary: Delete an invoice (irreversible)
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+  /invoices/{id}/pdf:
+    get:
+      tags: [Invoices]
+      operationId: getInvoicePdf
+      summary: Get the invoice PDF (base64 in pdf.content)
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200":
+          description: PDF wrapper
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pdf:
+                    type: object
+                    properties:
+                      content: { type: string, description: Base64-encoded PDF bytes }
+        default: { $ref: "#/components/responses/Error" }
+
+  /invoices/{id}/transitions/mark_as_sent:
+    put:
+      tags: [Invoices]
+      operationId: markInvoiceAsSent
+      summary: Mark a draft invoice as sent (makes it live in the books)
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Transitioned }
+        default: { $ref: "#/components/responses/Error" }
+
+  /invoices/{id}/transitions/mark_as_draft:
+    put:
+      tags: [Invoices]
+      operationId: markInvoiceAsDraft
+      summary: Return a sent invoice to draft
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Transitioned }
+        default: { $ref: "#/components/responses/Error" }
+
+  /invoices/{id}/transitions/mark_as_cancelled:
+    put:
+      tags: [Invoices]
+      operationId: markInvoiceAsCancelled
+      summary: Cancel a sent invoice
+      parameters:
+        - $ref: "#/components/parameters/id"
+      responses:
+        "200": { description: Transitioned }
+        default: { $ref: "#/components/responses/Error" }
+
+  /invoices/{id}/send_email:
+    post:
+      tags: [Invoices]
+      operationId: sendInvoiceEmail
+      summary: Email an invoice to the customer via FreeAgent
+      parameters:
+        - $ref: "#/components/parameters/id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invoice]
+              properties:
+                invoice:
+                  type: object
+                  required: [email]
+                  properties:
+                    email: { $ref: "#/components/schemas/EmailInput" }
+      responses:
+        "200": { description: Sent }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------------ Bills
+  /bills:
+    get:
+      tags: [Bills]
+      operationId: listBills
+      summary: List supplier bills
+      parameters:
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: [all, open, overdue, open_or_overdue, paid, recent_open_or_overdue]
+        - name: contact
+          in: query
+          schema: { type: string, format: uri }
+        - name: project
+          in: query
+          schema: { type: string, format: uri }
+        - $ref: "#/components/parameters/fromDate"
+        - $ref: "#/components/parameters/toDate"
+        - $ref: "#/components/parameters/updatedSince"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/perPage"
+      responses:
+        "200":
+          description: Bills
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bills:
+                    type: array
+                    items: { $ref: "#/components/schemas/Bill" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Bills]
+      operationId: createBill
+      summary: Create a bill (optionally with a base64 attachment)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bill]
+              properties:
+                bill: { $ref: "#/components/schemas/BillInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bill: { $ref: "#/components/schemas/Bill" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /bills/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Bills]
+      operationId: getBill
+      summary: Get a bill
+      responses:
+        "200":
+          description: Bill
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bill: { $ref: "#/components/schemas/Bill" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Bills]
+      operationId: updateBill
+      summary: Update a bill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bill]
+              properties:
+                bill: { $ref: "#/components/schemas/BillInput" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bill: { $ref: "#/components/schemas/Bill" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Bills]
+      operationId: deleteBill
+      summary: Delete a bill (irreversible)
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+  # --------------------------------------------------------------- Expenses
+  /expenses:
+    get:
+      tags: [Expenses]
+      operationId: listExpenses
+      summary: List out-of-pocket expenses
+      parameters:
+        - name: user
+          in: query
+          schema: { type: string, format: uri }
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: [recent, all]
+        - $ref: "#/components/parameters/fromDate"
+        - $ref: "#/components/parameters/toDate"
+        - $ref: "#/components/parameters/updatedSince"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/perPage"
+      responses:
+        "200":
+          description: Expenses
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  expenses:
+                    type: array
+                    items: { $ref: "#/components/schemas/Expense" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Expenses]
+      operationId: createExpense
+      summary: Create an expense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expense]
+              properties:
+                expense: { $ref: "#/components/schemas/ExpenseInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  expense: { $ref: "#/components/schemas/Expense" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /expenses/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Expenses]
+      operationId: getExpense
+      summary: Get an expense
+      responses:
+        "200":
+          description: Expense
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  expense: { $ref: "#/components/schemas/Expense" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Expenses]
+      operationId: deleteExpense
+      summary: Delete an expense (irreversible)
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+  # --------------------------------------------------------------- Projects
+  /projects:
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: List projects
+      parameters:
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: [active, completed, cancelled, hidden, all]
+        - name: contact
+          in: query
+          schema: { type: string, format: uri }
+        - $ref: "#/components/parameters/updatedSince"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/perPage"
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items: { $ref: "#/components/schemas/Project" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------- Categories
+  /categories:
+    get:
+      tags: [Categories]
+      operationId: listCategories
+      summary: List accounting categories grouped by type
+      parameters:
+        - name: sub_accounts
+          in: query
+          schema: { type: boolean }
+          description: Include user-created sub-accounts
+      responses:
+        "200":
+          description: Categories grouped by type
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  admin_expenses_categories:
+                    type: array
+                    items: { $ref: "#/components/schemas/Category" }
+                  cost_of_sales_categories:
+                    type: array
+                    items: { $ref: "#/components/schemas/Category" }
+                  income_categories:
+                    type: array
+                    items: { $ref: "#/components/schemas/Category" }
+                  general_categories:
+                    type: array
+                    items: { $ref: "#/components/schemas/Category" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /categories/{nominal_code}:
+    get:
+      tags: [Categories]
+      operationId: getCategory
+      summary: Get a category by nominal code
+      parameters:
+        - name: nominal_code
+          in: path
+          required: true
+          schema: { type: string }
+          example: "285"
+      responses:
+        "200":
+          description: Category
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  category: { $ref: "#/components/schemas/Category" }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ----------------------------------------------------------- Journal sets
+  /journal_sets:
+    get:
+      tags: [JournalSets]
+      operationId: listJournalSets
+      summary: List manual journal sets
+      parameters:
+        - $ref: "#/components/parameters/fromDate"
+        - $ref: "#/components/parameters/toDate"
+        - $ref: "#/components/parameters/updatedSince"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/perPage"
+      responses:
+        "200":
+          description: Journal sets
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  journal_sets:
+                    type: array
+                    items: { $ref: "#/components/schemas/JournalSet" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [JournalSets]
+      operationId: createJournalSet
+      summary: Post a manual journal (entries must balance to zero)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [journal_set]
+              properties:
+                journal_set: { $ref: "#/components/schemas/JournalSetInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  journal_set: { $ref: "#/components/schemas/JournalSet" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /journal_sets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [JournalSets]
+      operationId: getJournalSet
+      summary: Get a journal set
+      responses:
+        "200":
+          description: Journal set
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  journal_set: { $ref: "#/components/schemas/JournalSet" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [JournalSets]
+      operationId: deleteJournalSet
+      summary: Delete a journal set (irreversible)
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------ Attachments
+  /attachments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Attachments]
+      operationId: getAttachment
+      summary: Get attachment metadata and a temporary content URL
+      responses:
+        "200":
+          description: Attachment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attachment: { $ref: "#/components/schemas/Attachment" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Attachments]
+      operationId: deleteAttachment
+      summary: Delete an attachment (irreversible)
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------- Accounting
+  /accounting/trial_balance/summary:
+    get:
+      tags: [Accounting]
+      operationId: getTrialBalanceSummary
+      summary: Trial balance for a period
+      parameters:
+        - $ref: "#/components/parameters/fromDate"
+        - $ref: "#/components/parameters/toDate"
+      responses:
+        "200":
+          description: Trial balance lines
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  trial_balance_summary:
+                    type: array
+                    items: { $ref: "#/components/schemas/TrialBalanceLine" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /accounting/profit_and_loss/summary:
+    get:
+      tags: [Accounting]
+      operationId: getProfitAndLossSummary
+      summary: Profit and loss summary for a period
+      parameters:
+        - $ref: "#/components/parameters/fromDate"
+        - $ref: "#/components/parameters/toDate"
+      responses:
+        "200":
+          description: P&L summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profit_and_loss_summary:
+                    type: object
+                    additionalProperties: true
+        default: { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    oauth2:
+      type: oauth2
+      description: >
+        FreeAgent OAuth 2.0 authorisation-code flow. FreeAgent has no scopes;
+        access tokens last about seven days and are renewed with the
+        refresh token, which does not expire. Register the app at
+        https://dev.freeagent.com with Executor's callback URL.
+      flows:
+        authorizationCode:
+          authorizationUrl: https://api.freeagent.com/v2/approve_app
+          tokenUrl: https://api.freeagent.com/v2/token_endpoint
+          refreshUrl: https://api.freeagent.com/v2/token_endpoint
+          scopes: {}
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+      description: Numeric resource id (the last path segment of the resource URL)
+    page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    perPage:
+      name: per_page
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    fromDate:
+      name: from_date
+      in: query
+      schema: { type: string, format: date }
+    toDate:
+      name: to_date
+      in: query
+      schema: { type: string, format: date }
+    updatedSince:
+      name: updated_since
+      in: query
+      schema: { type: string, format: date-time }
+      description: RFC 3339 timestamp; only resources updated since then
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              errors:
+                type: object
+                additionalProperties: true
+              error: { type: string }
+              error_description: { type: string }
+
+  schemas:
+    Money:
+      type: string
+      description: Decimal amount as a string, e.g. "123.45"
+      example: "123.45"
+
+    Company:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        name: { type: string }
+        subdomain: { type: string }
+        type: { type: string, description: "e.g. UkLimitedCompany / UkSoleTrader / UkPartnership" }
+        currency: { type: string, example: GBP }
+        mileage_units: { type: string }
+        company_start_date: { type: string, format: date }
+        freeagent_start_date: { type: string, format: date }
+        first_accounting_year_end: { type: string, format: date }
+        company_registration_number: { type: string }
+        sales_tax_registration_status: { type: string, description: Registered / Not Registered / Never Registered }
+        sales_tax_registration_number: { type: string }
+        sales_tax_name: { type: string }
+        sales_tax_is_value_added: { type: boolean }
+        cash_accounting_basis: { type: boolean }
+        vat_first_return_period_ends_on: { type: string, format: date }
+        address1: { type: string }
+        town: { type: string }
+        postcode: { type: string }
+        country: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    TimelineItem:
+      type: object
+      properties:
+        description: { type: string }
+        nature: { type: string }
+        dated_on: { type: string, format: date }
+        amount_due: { $ref: "#/components/schemas/Money" }
+        is_personal: { type: boolean }
+
+    User:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        first_name: { type: string }
+        last_name: { type: string }
+        email: { type: string }
+        role: { type: string, description: Owner / Director / Partner / Employee / Accountant }
+        permission_level: { type: integer }
+        opening_mileage: { type: number }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    BankAccount:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        type: { type: string, description: StandardBankAccount / CreditCardAccount / PaypalAccount }
+        name: { type: string }
+        currency: { type: string }
+        current_balance: { $ref: "#/components/schemas/Money" }
+        opening_balance: { $ref: "#/components/schemas/Money" }
+        is_personal: { type: boolean }
+        is_primary: { type: boolean }
+        status: { type: string, description: active / hidden }
+        bank_name: { type: string }
+        account_number: { type: string }
+        sort_code: { type: string }
+        iban: { type: string }
+        bic: { type: string }
+        bank_guess_enabled: { type: boolean }
+        latest_activity_date: { type: string, format: date }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    BankAccountInput:
+      type: object
+      properties:
+        type: { type: string, enum: [StandardBankAccount, CreditCardAccount, PaypalAccount] }
+        name: { type: string }
+        currency: { type: string }
+        opening_balance: { $ref: "#/components/schemas/Money" }
+        is_personal: { type: boolean }
+        bank_name: { type: string }
+        account_number: { type: string }
+        sort_code: { type: string }
+        iban: { type: string }
+        bic: { type: string }
+        status: { type: string, enum: [active, hidden] }
+
+    BankTransaction:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        bank_account: { type: string, format: uri }
+        amount: { $ref: "#/components/schemas/Money" }
+        unexplained_amount: { $ref: "#/components/schemas/Money" }
+        dated_on: { type: string, format: date }
+        description: { type: string }
+        full_description: { type: string }
+        transaction_id: { type: string, description: Bank-supplied id / fitid when imported }
+        is_manual: { type: boolean }
+        marked_for_review: { type: boolean }
+        uploaded_at: { type: string, format: date-time }
+        bank_transaction_explanations:
+          type: array
+          items: { $ref: "#/components/schemas/BankTransactionExplanation" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    StatementLine:
+      type: object
+      required: [dated_on, description, amount]
+      properties:
+        dated_on: { type: string, format: date }
+        description: { type: string }
+        amount: { $ref: "#/components/schemas/Money" }
+        fitid: { type: string, description: Unique id from the bank; de-duplicates repeat uploads }
+
+    BankTransactionExplanation:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        bank_transaction: { type: string, format: uri }
+        bank_account: { type: string, format: uri }
+        dated_on: { type: string, format: date }
+        description: { type: string }
+        gross_value: { $ref: "#/components/schemas/Money" }
+        category: { type: string, format: uri }
+        paid_invoice: { type: string, format: uri }
+        paid_bill: { type: string, format: uri }
+        paid_user: { type: string, format: uri }
+        transfer_bank_account: { type: string, format: uri }
+        project: { type: string, format: uri }
+        sales_tax_status: { type: string, description: TAXABLE / EXEMPT / OUT_OF_SCOPE }
+        sales_tax_rate: { type: string }
+        sales_tax_value: { $ref: "#/components/schemas/Money" }
+        ec_status: { type: string }
+        foreign_currency_value: { $ref: "#/components/schemas/Money" }
+        attachment: { $ref: "#/components/schemas/Attachment" }
+        is_locked: { type: boolean }
+        locked_reason: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    BankTransactionExplanationInput:
+      type: object
+      properties:
+        bank_transaction: { type: string, format: uri, description: Existing transaction to explain }
+        bank_account: { type: string, format: uri, description: Required when creating a manual transaction instead }
+        dated_on: { type: string, format: date }
+        description: { type: string }
+        gross_value: { $ref: "#/components/schemas/Money" }
+        category: { type: string, format: uri, description: Category URL for money in/out }
+        paid_invoice: { type: string, format: uri, description: Invoice URL this receipt pays }
+        paid_bill: { type: string, format: uri, description: Bill URL this payment settles }
+        paid_user: { type: string, format: uri, description: User URL for expense repayment / drawings }
+        transfer_bank_account: { type: string, format: uri, description: Other bank account URL for a transfer }
+        project: { type: string, format: uri }
+        sales_tax_status: { type: string, enum: [TAXABLE, EXEMPT, OUT_OF_SCOPE] }
+        sales_tax_rate: { type: string, description: "Percentage as a string such as 20.0" }
+        sales_tax_value: { $ref: "#/components/schemas/Money" }
+        ec_status: { type: string }
+        rebill_type: { type: string }
+        rebill_factor: { type: string }
+        foreign_currency_value: { $ref: "#/components/schemas/Money" }
+        attachment: { $ref: "#/components/schemas/AttachmentInput" }
+
+    Contact:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        first_name: { type: string }
+        last_name: { type: string }
+        organisation_name: { type: string }
+        email: { type: string }
+        billing_email: { type: string }
+        phone_number: { type: string }
+        mobile: { type: string }
+        address1: { type: string }
+        address2: { type: string }
+        address3: { type: string }
+        town: { type: string }
+        region: { type: string }
+        postcode: { type: string }
+        country: { type: string }
+        contact_name_on_invoices: { type: boolean }
+        default_payment_terms_in_days: { type: integer }
+        locale: { type: string }
+        charge_sales_tax: { type: string, description: Auto / Always / Never }
+        sales_tax_registration_number: { type: string }
+        active_projects_count: { type: integer }
+        status: { type: string, description: Active / Hidden }
+        uses_contact_invoice_sequence: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ContactInput:
+      type: object
+      description: Either organisation_name or first_name+last_name is required
+      properties:
+        first_name: { type: string }
+        last_name: { type: string }
+        organisation_name: { type: string }
+        email: { type: string }
+        billing_email: { type: string }
+        phone_number: { type: string }
+        mobile: { type: string }
+        address1: { type: string }
+        address2: { type: string }
+        address3: { type: string }
+        town: { type: string }
+        region: { type: string }
+        postcode: { type: string }
+        country: { type: string }
+        contact_name_on_invoices: { type: boolean }
+        default_payment_terms_in_days: { type: integer }
+        locale: { type: string }
+        charge_sales_tax: { type: string, enum: [Auto, Always, Never] }
+        sales_tax_registration_number: { type: string }
+        status: { type: string, enum: [Active, Hidden] }
+        uses_contact_invoice_sequence: { type: boolean }
+
+    InvoiceItem:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        position: { type: integer }
+        item_type: { type: string, description: Hours / Days / Weeks / Months / Years / Products / Services / Training / Expenses / Comment / Bills / Discount / Credit / VAT / Stock }
+        description: { type: string }
+        quantity: { type: string }
+        price: { $ref: "#/components/schemas/Money" }
+        sales_tax_rate: { type: string }
+        sales_tax_status: { type: string }
+        category: { type: string, format: uri }
+        project: { type: string, format: uri }
+
+    Invoice:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        contact: { type: string, format: uri }
+        project: { type: string, format: uri }
+        reference: { type: string }
+        dated_on: { type: string, format: date }
+        due_on: { type: string, format: date }
+        paid_on: { type: string, format: date }
+        payment_terms_in_days: { type: integer }
+        currency: { type: string }
+        exchange_rate: { type: string }
+        net_value: { $ref: "#/components/schemas/Money" }
+        sales_tax_value: { $ref: "#/components/schemas/Money" }
+        total_value: { $ref: "#/components/schemas/Money" }
+        paid_value: { $ref: "#/components/schemas/Money" }
+        due_value: { $ref: "#/components/schemas/Money" }
+        status: { type: string, description: Draft / Scheduled to Email / Open / Overdue / Paid / Overpaid / Refunded / Written-off / Cancelled }
+        long_status: { type: string }
+        comments: { type: string }
+        ec_status: { type: string }
+        invoice_items:
+          type: array
+          items: { $ref: "#/components/schemas/InvoiceItem" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    InvoiceInput:
+      type: object
+      properties:
+        contact: { type: string, format: uri }
+        project: { type: string, format: uri }
+        reference: { type: string, description: Omit to use the next number in sequence }
+        dated_on: { type: string, format: date }
+        due_on: { type: string, format: date }
+        payment_terms_in_days: { type: integer }
+        currency: { type: string }
+        exchange_rate: { type: string }
+        comments: { type: string }
+        ec_status: { type: string, enum: [UK/Non-EC, EC Goods, EC Services, Non-EC Goods, Non-EC Services] }
+        po_reference: { type: string }
+        send_new_invoice_emails: { type: boolean }
+        send_reminder_emails: { type: boolean }
+        send_thank_you_emails: { type: boolean }
+        invoice_items:
+          type: array
+          items:
+            type: object
+            required: [item_type, description, price]
+            properties:
+              item_type: { type: string }
+              description: { type: string }
+              quantity: { type: string }
+              price: { $ref: "#/components/schemas/Money" }
+              sales_tax_rate: { type: string }
+              sales_tax_status: { type: string, enum: [TAXABLE, EXEMPT, OUT_OF_SCOPE] }
+              category: { type: string, format: uri }
+              project: { type: string, format: uri }
+
+    EmailInput:
+      type: object
+      required: [to]
+      properties:
+        to: { type: string }
+        from: { type: string }
+        cc: { type: string }
+        bcc: { type: string }
+        subject: { type: string }
+        body: { type: string }
+        email_to_sender: { type: boolean }
+
+    BillItem:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        category: { type: string, format: uri }
+        description: { type: string }
+        total_value: { $ref: "#/components/schemas/Money" }
+        sales_tax_rate: { type: string }
+        sales_tax_value: { $ref: "#/components/schemas/Money" }
+        sales_tax_status: { type: string }
+        project: { type: string, format: uri }
+        quantity: { type: string }
+        unit: { type: string }
+
+    Bill:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        contact: { type: string, format: uri }
+        project: { type: string, format: uri }
+        reference: { type: string }
+        dated_on: { type: string, format: date }
+        due_on: { type: string, format: date }
+        paid_on: { type: string, format: date }
+        currency: { type: string }
+        exchange_rate: { type: string }
+        net_value: { $ref: "#/components/schemas/Money" }
+        sales_tax_value: { $ref: "#/components/schemas/Money" }
+        total_value: { $ref: "#/components/schemas/Money" }
+        paid_value: { $ref: "#/components/schemas/Money" }
+        due_value: { $ref: "#/components/schemas/Money" }
+        status: { type: string, description: Open / Overdue / Paid / Refunded / Zero Value }
+        long_status: { type: string }
+        comments: { type: string }
+        ec_status: { type: string }
+        attachment: { $ref: "#/components/schemas/Attachment" }
+        bill_items:
+          type: array
+          items: { $ref: "#/components/schemas/BillItem" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    BillInput:
+      type: object
+      properties:
+        contact: { type: string, format: uri }
+        project: { type: string, format: uri }
+        reference: { type: string }
+        dated_on: { type: string, format: date }
+        due_on: { type: string, format: date }
+        currency: { type: string }
+        exchange_rate: { type: string }
+        comments: { type: string }
+        ec_status: { type: string }
+        attachment: { $ref: "#/components/schemas/AttachmentInput" }
+        bill_items:
+          type: array
+          items:
+            type: object
+            required: [category, total_value]
+            properties:
+              category: { type: string, format: uri }
+              description: { type: string }
+              total_value:
+                allOf: [{ $ref: "#/components/schemas/Money" }]
+                description: Gross (VAT-inclusive) value
+              sales_tax_rate: { type: string }
+              sales_tax_status: { type: string, enum: [TAXABLE, EXEMPT, OUT_OF_SCOPE] }
+              project: { type: string, format: uri }
+              quantity: { type: string }
+              unit: { type: string }
+
+    Expense:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        user: { type: string, format: uri }
+        category: { type: string, format: uri }
+        project: { type: string, format: uri }
+        dated_on: { type: string, format: date }
+        description: { type: string }
+        gross_value: { $ref: "#/components/schemas/Money" }
+        native_gross_value: { $ref: "#/components/schemas/Money" }
+        sales_tax_rate: { type: string }
+        sales_tax_value: { $ref: "#/components/schemas/Money" }
+        sales_tax_status: { type: string }
+        currency: { type: string }
+        mileage: { type: string }
+        attachment: { $ref: "#/components/schemas/Attachment" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ExpenseInput:
+      type: object
+      required: [user, category, dated_on, gross_value, description]
+      properties:
+        user: { type: string, format: uri }
+        category: { type: string, format: uri }
+        project: { type: string, format: uri }
+        dated_on: { type: string, format: date }
+        description: { type: string }
+        gross_value:
+          allOf: [{ $ref: "#/components/schemas/Money" }]
+          description: Negative for money spent by the user
+        sales_tax_rate: { type: string }
+        sales_tax_status: { type: string, enum: [TAXABLE, EXEMPT, OUT_OF_SCOPE] }
+        currency: { type: string }
+        attachment: { $ref: "#/components/schemas/AttachmentInput" }
+
+    Project:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        contact: { type: string, format: uri }
+        name: { type: string }
+        status: { type: string, description: Active / Completed / Cancelled / Hidden }
+        currency: { type: string }
+        budget: { type: string }
+        budget_units: { type: string }
+        billing_period: { type: string }
+        hours_per_day: { type: string }
+        is_ir35: { type: boolean }
+        starts_on: { type: string, format: date }
+        ends_on: { type: string, format: date }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Category:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        description: { type: string }
+        nominal_code: { type: string }
+        group_description: { type: string }
+        allowable_for_tax: { type: boolean }
+        tax_reporting_name: { type: string }
+        auto_sales_tax_rate: { type: string }
+
+    JournalEntry:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        category: { type: string, format: uri }
+        description: { type: string }
+        debit_value:
+          allOf: [{ $ref: "#/components/schemas/Money" }]
+          description: Negative values are credits
+        user: { type: string, format: uri }
+        bank_account: { type: string, format: uri }
+
+    JournalSet:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        dated_on: { type: string, format: date }
+        description: { type: string }
+        tag: { type: string }
+        journal_entries:
+          type: array
+          items: { $ref: "#/components/schemas/JournalEntry" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    JournalSetInput:
+      type: object
+      required: [dated_on, description, journal_entries]
+      properties:
+        dated_on: { type: string, format: date }
+        description: { type: string }
+        tag: { type: string }
+        journal_entries:
+          type: array
+          minItems: 2
+          items:
+            type: object
+            required: [category, debit_value]
+            properties:
+              category: { type: string, format: uri }
+              description: { type: string }
+              debit_value:
+                allOf: [{ $ref: "#/components/schemas/Money" }]
+                description: Negative values are credits; the set must sum to zero
+              user: { type: string, format: uri }
+              bank_account: { type: string, format: uri }
+
+    Attachment:
+      type: object
+      properties:
+        url: { type: string, format: uri }
+        content_src: { type: string, format: uri, description: Temporary download URL }
+        content_src_medium: { type: string, format: uri }
+        content_src_small: { type: string, format: uri }
+        expires_at: { type: string, format: date-time }
+        content_type: { type: string }
+        file_name: { type: string }
+        file_size: { type: integer }
+        description: { type: string }
+
+    AttachmentInput:
+      type: object
+      required: [data, file_name, content_type]
+      properties:
+        data: { type: string, description: Base64-encoded file bytes }
+        file_name: { type: string }
+        description: { type: string }
+        content_type:
+          type: string
+          enum: [image/png, image/x-png, image/jpeg, image/jpg, image/gif, application/x-pdf]
+
+    TrialBalanceLine:
+      type: object
+      properties:
+        category: { type: string, format: uri }
+        category_name: { type: string }
+        nominal_code: { type: string }
+        debit_value: { $ref: "#/components/schemas/Money" }
+        credit_value: { $ref: "#/components/schemas/Money" }
