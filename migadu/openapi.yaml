@@ -1,0 +1,917 @@
+openapi: 3.0.3
+info:
+  title: Migadu Admin API
+  version: "1.1.0"
+  description: |
+    Administrative API for Migadu email hosting. Manages domains, mailboxes,
+    identities, forwardings, aliases and rewrites.
+
+    Authentication is HTTP Basic: username is the Migadu account email address,
+    password is an API key created under My Account > API Keys.
+
+    Conventions: list fields such as sender_denylist, sender_allowlist,
+    recipient_denylist, catchall_destinations and destinations accept either a
+    JSON array of strings or a single comma-separated string. Destinations for
+    aliases and rewrites must be addresses on the same domain. Dates are
+    ISO 8601 (YYYY-MM-DD); timestamps are RFC 3339.
+
+    Note: list endpoints return an object wrapping the array (domains, mailboxes,
+    identities, forwardings, address_aliases, rewrites), not a bare array.
+
+    Destructive operations (DELETE endpoints, mailbox password changes and
+    domain-level settings) are irreversible; confirm before calling them.
+servers:
+  - url: https://api.migadu.com/v1
+security:
+  - basicAuth: []
+tags:
+  - name: Domains
+  - name: Mailboxes
+  - name: Identities
+  - name: Forwardings
+  - name: Aliases
+  - name: Rewrites
+
+paths:
+  /domains:
+    get:
+      tags: [Domains]
+      operationId: listDomains
+      summary: List all domains on the account
+      responses:
+        "200":
+          description: Array of domains
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  domains:
+                    type: array
+                    items: { $ref: "#/components/schemas/Domain" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Domains]
+      operationId: createDomain
+      summary: Add a new domain to the account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DomainCreate" }
+      responses:
+        "200":
+          description: Created domain (state is "inactive" until DNS is verified and activateDomain is called)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Domain" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+    get:
+      tags: [Domains]
+      operationId: getDomain
+      summary: Show a domain and its settings
+      responses:
+        "200":
+          description: Domain
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Domain" }
+        default: { $ref: "#/components/responses/Error" }
+    patch:
+      tags: [Domains]
+      operationId: updateDomain
+      summary: Update domain settings (partial update)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DomainUpdate" }
+      responses:
+        "200":
+          description: Updated domain
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Domain" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/records:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+    get:
+      tags: [Domains]
+      operationId: getDomainDnsRecords
+      summary: Get the DNS records (MX, SPF, DKIM, DMARC, verification TXT) required for this domain
+      responses:
+        "200":
+          description: Required DNS records
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DnsRecords" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/diagnostics:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+    get:
+      tags: [Domains]
+      operationId: getDomainDiagnostics
+      summary: Run DNS diagnostics for the domain (checks whether required records are present)
+      responses:
+        "200":
+          description: Diagnostics status object
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/activate:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+    get:
+      tags: [Domains]
+      operationId: activateDomain
+      summary: Activate the domain (requires DNS verification record to be in place)
+      description: Although this changes state, Migadu exposes it as a GET request.
+      responses:
+        "200":
+          description: Activated domain
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Domain" }
+        "422":
+          description: DNS checks failed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+              example:
+                error: dns_check_failed
+                message: DNS checks failed, please check your DNS and try activating domain.
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/usage:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+    get:
+      tags: [Domains]
+      operationId: getDomainUsage
+      summary: Get message counts and storage used for the domain
+      responses:
+        "200":
+          description: Usage
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DomainUsage" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/mailboxes:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+    get:
+      tags: [Mailboxes]
+      operationId: listMailboxes
+      summary: List mailboxes on a domain
+      responses:
+        "200":
+          description: Array of mailboxes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mailboxes:
+                    type: array
+                    items: { $ref: "#/components/schemas/Mailbox" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Mailboxes]
+      operationId: createMailbox
+      summary: Create a mailbox
+      description: |
+        Either supply a password (password_method "password", the default) or
+        use password_method "invitation" with a password_recovery_email so the
+        user sets their own password via an emailed invitation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MailboxCreate" }
+      responses:
+        "200":
+          description: Created mailbox
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Mailbox" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/mailboxes/{local_part}:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+      - $ref: "#/components/parameters/local_part"
+    get:
+      tags: [Mailboxes]
+      operationId: getMailbox
+      summary: Show a mailbox
+      responses:
+        "200":
+          description: Mailbox
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Mailbox" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Mailboxes]
+      operationId: updateMailbox
+      summary: Update a mailbox (name, password, access flags, spam settings, allow/deny lists)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MailboxUpdate" }
+      responses:
+        "200":
+          description: Updated mailbox
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Mailbox" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Mailboxes]
+      operationId: deleteMailbox
+      summary: Delete a mailbox and all its mail (irreversible)
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/mailboxes/{local_part}/identities:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+      - $ref: "#/components/parameters/local_part"
+    get:
+      tags: [Identities]
+      operationId: listIdentities
+      summary: List identities (sender personas / extra addresses) attached to a mailbox
+      responses:
+        "200":
+          description: Array of identities
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  identities:
+                    type: array
+                    items: { $ref: "#/components/schemas/Identity" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Identities]
+      operationId: createIdentity
+      summary: Create an identity on a mailbox
+      description: |
+        password_use "none" (default) makes a send-as persona only; "mailbox"
+        lets the identity authenticate with the mailbox password; "custom"
+        requires a separate password in the password field.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IdentityCreate" }
+      responses:
+        "200":
+          description: Created identity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Identity" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/mailboxes/{local_part}/identities/{identity_local_part}:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+      - $ref: "#/components/parameters/local_part"
+      - $ref: "#/components/parameters/identity_local_part"
+    get:
+      tags: [Identities]
+      operationId: getIdentity
+      summary: Show an identity
+      responses:
+        "200":
+          description: Identity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Identity" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Identities]
+      operationId: updateIdentity
+      summary: Update an identity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IdentityUpdate" }
+      responses:
+        "200":
+          description: Updated identity
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Identity" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Identities]
+      operationId: deleteIdentity
+      summary: Delete an identity
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/mailboxes/{local_part}/forwardings:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+      - $ref: "#/components/parameters/local_part"
+    get:
+      tags: [Forwardings]
+      operationId: listForwardings
+      summary: List external forwarding addresses for a mailbox
+      responses:
+        "200":
+          description: Array of forwardings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  forwardings:
+                    type: array
+                    items: { $ref: "#/components/schemas/Forwarding" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Forwardings]
+      operationId: createForwarding
+      summary: Add an external forwarding address to a mailbox
+      description: Migadu sends a confirmation email to the external address; forwarding starts once confirmed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForwardingCreate" }
+      responses:
+        "200":
+          description: Created forwarding
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Forwarding" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/mailboxes/{local_part}/forwardings/{forwarding_address}:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+      - $ref: "#/components/parameters/local_part"
+      - $ref: "#/components/parameters/forwarding_address"
+    get:
+      tags: [Forwardings]
+      operationId: getForwarding
+      summary: Show a forwarding
+      responses:
+        "200":
+          description: Forwarding
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Forwarding" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Forwardings]
+      operationId: updateForwarding
+      summary: Update a forwarding (activate/deactivate, expiry)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForwardingUpdate" }
+      responses:
+        "200":
+          description: Updated forwarding
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Forwarding" }
+        "400": { description: Validation error (e.g. expires_on in the past) }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Forwardings]
+      operationId: deleteForwarding
+      summary: Remove a forwarding
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/aliases:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+    get:
+      tags: [Aliases]
+      operationId: listAliases
+      summary: List aliases on a domain
+      responses:
+        "200":
+          description: Array of aliases
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  address_aliases:
+                    type: array
+                    items: { $ref: "#/components/schemas/Alias" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Aliases]
+      operationId: createAlias
+      summary: Create an alias that delivers to one or more mailboxes on the same domain
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AliasCreate" }
+      responses:
+        "200":
+          description: Created alias
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Alias" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/aliases/{local_part}:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+      - $ref: "#/components/parameters/local_part"
+    get:
+      tags: [Aliases]
+      operationId: getAlias
+      summary: Show an alias
+      responses:
+        "200":
+          description: Alias
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Alias" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Aliases]
+      operationId: updateAlias
+      summary: Update an alias's destinations or internal flag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AliasUpdate" }
+      responses:
+        "200":
+          description: Updated alias
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Alias" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Aliases]
+      operationId: deleteAlias
+      summary: Delete an alias
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/rewrites:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+    get:
+      tags: [Rewrites]
+      operationId: listRewrites
+      summary: List rewrite (pattern) rules on a domain
+      responses:
+        "200":
+          description: Array of rewrites
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rewrites:
+                    type: array
+                    items: { $ref: "#/components/schemas/Rewrite" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Rewrites]
+      operationId: createRewrite
+      summary: Create a rewrite rule (e.g. local_part_rule "demo-*" routing to given destinations)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RewriteCreate" }
+      responses:
+        "200":
+          description: Created rewrite
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rewrite" }
+        default: { $ref: "#/components/responses/Error" }
+
+  /domains/{domain_name}/rewrites/{name}:
+    parameters:
+      - $ref: "#/components/parameters/domain_name"
+      - $ref: "#/components/parameters/rewrite_name"
+    get:
+      tags: [Rewrites]
+      operationId: getRewrite
+      summary: Show a rewrite rule
+      responses:
+        "200":
+          description: Rewrite
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rewrite" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      tags: [Rewrites]
+      operationId: updateRewrite
+      summary: Update a rewrite rule (can rename it via name)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RewriteUpdate" }
+      responses:
+        "200":
+          description: Updated rewrite
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Rewrite" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      tags: [Rewrites]
+      operationId: deleteRewrite
+      summary: Delete a rewrite rule
+      responses:
+        "200": { description: Deleted }
+        default: { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: Username = Migadu account email; password = API key.
+
+  parameters:
+    domain_name:
+      name: domain_name
+      in: path
+      required: true
+      description: Domain name, e.g. wrenham.com
+      schema: { type: string }
+    local_part:
+      name: local_part
+      in: path
+      required: true
+      description: Local part of the address (the part before @)
+      schema: { type: string }
+    identity_local_part:
+      name: identity_local_part
+      in: path
+      required: true
+      description: Local part of the identity address
+      schema: { type: string }
+    forwarding_address:
+      name: forwarding_address
+      in: path
+      required: true
+      description: Full external email address the forwarding points to
+      schema: { type: string, format: email }
+    rewrite_name:
+      name: name
+      in: path
+      required: true
+      description: Slug name of the rewrite rule
+      schema: { type: string }
+
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+
+  schemas:
+    StringOrList:
+      description: A JSON array of strings, or a single comma-separated string
+      oneOf:
+        - type: string
+        - type: array
+          items: { type: string }
+
+    ErrorResponse:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }
+
+    Domain:
+      type: object
+      properties:
+        name: { type: string, readOnly: true }
+        state: { type: string, readOnly: true, description: "e.g. active or inactive" }
+        activated_at: { type: string, nullable: true, readOnly: true }
+        deactivated_at: { type: string, nullable: true, readOnly: true }
+        tags: { $ref: "#/components/schemas/StringOrList" }
+        description: { type: string }
+        can_send: { type: boolean, readOnly: true }
+        can_receive: { type: boolean, readOnly: true }
+        can_access: { type: boolean }
+        mx_proxy_enabled: { type: boolean }
+        spam_aggressiveness: { type: string }
+        subject_rewriting_enabled: { type: boolean }
+        junk_subject_keyword_spam: { type: boolean }
+        sender_denylist: { $ref: "#/components/schemas/StringOrList" }
+        sender_allowlist: { $ref: "#/components/schemas/StringOrList" }
+        recipient_denylist: { $ref: "#/components/schemas/StringOrList" }
+        catchall_destinations: { $ref: "#/components/schemas/StringOrList" }
+        hosted_dns: { type: boolean }
+        greylisting_enabled: { type: boolean }
+        mailbox_default_incoming_limit: { type: integer }
+        mailbox_default_outgoing_limit: { type: integer }
+        mailbox_default_storage_limit: { type: integer }
+        mailbox_default_sending_enabled: { type: boolean }
+        mailbox_default_receiving_enabled: { type: boolean }
+        mailbox_default_imap_enabled: { type: boolean }
+        mailbox_default_pop3_enabled: { type: boolean }
+        mailbox_default_managesieve_enabled: { type: boolean }
+
+    DomainCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, description: Domain name to add }
+        hosted_dns: { type: boolean, default: false, description: Let Migadu host the domain's DNS }
+        create_default_addresses: { type: boolean, default: false, description: "Create admin@, postmaster@ and abuse@ "}
+        tags: { $ref: "#/components/schemas/StringOrList" }
+        description: { type: string }
+
+    DomainUpdate:
+      type: object
+      properties:
+        tags: { $ref: "#/components/schemas/StringOrList" }
+        description: { type: string }
+        can_access: { type: boolean }
+        mx_proxy_enabled: { type: boolean }
+        spam_aggressiveness: { type: string }
+        subject_rewriting_enabled: { type: boolean }
+        junk_subject_keyword_spam: { type: boolean }
+        sender_denylist: { $ref: "#/components/schemas/StringOrList" }
+        sender_allowlist: { $ref: "#/components/schemas/StringOrList" }
+        recipient_denylist: { $ref: "#/components/schemas/StringOrList" }
+        catchall_destinations: { $ref: "#/components/schemas/StringOrList" }
+        mailbox_default_incoming_limit: { type: integer }
+        mailbox_default_outgoing_limit: { type: integer }
+        mailbox_default_storage_limit: { type: integer }
+        mailbox_default_sending_enabled: { type: boolean }
+        mailbox_default_receiving_enabled: { type: boolean }
+        mailbox_default_imap_enabled: { type: boolean }
+        mailbox_default_pop3_enabled: { type: boolean }
+        mailbox_default_managesieve_enabled: { type: boolean }
+
+    DnsRecord:
+      type: object
+      properties:
+        name: { type: string }
+        type: { type: string }
+        value: { type: string }
+        priority: { type: integer }
+
+    DnsRecords:
+      type: object
+      properties:
+        domain_name: { type: string }
+        dkim:
+          type: array
+          items: { $ref: "#/components/schemas/DnsRecord" }
+        dmarc: { $ref: "#/components/schemas/DnsRecord" }
+        dns_verification: { $ref: "#/components/schemas/DnsRecord" }
+        mx_records:
+          type: array
+          items: { $ref: "#/components/schemas/DnsRecord" }
+        spf: { $ref: "#/components/schemas/DnsRecord" }
+
+    DomainUsage:
+      type: object
+      properties:
+        domain_name: { type: string }
+        incoming: { type: integer, description: Incoming message count }
+        outgoing: { type: integer, description: Outgoing message count }
+        storage: { type: number, description: Storage used in GB }
+
+    Mailbox:
+      type: object
+      properties:
+        local_part: { type: string, readOnly: true }
+        domain_name: { type: string, readOnly: true }
+        address: { type: string, readOnly: true }
+        name: { type: string }
+        is_internal: { type: boolean }
+        wildcard_sender: { type: boolean }
+        may_send: { type: boolean }
+        may_receive: { type: boolean }
+        may_access_imap: { type: boolean }
+        may_access_pop3: { type: boolean }
+        may_access_managesieve: { type: boolean }
+        password_recovery_email: { type: string, nullable: true }
+        spam_action: { type: string, description: e.g. folder }
+        spam_aggressiveness: { type: string, description: e.g. default }
+        sender_denylist: { $ref: "#/components/schemas/StringOrList" }
+        sender_allowlist: { $ref: "#/components/schemas/StringOrList" }
+        recipient_denylist: { $ref: "#/components/schemas/StringOrList" }
+        delegations:
+          type: array
+          items: { type: string }
+        identities:
+          type: array
+          items: { type: string }
+        expireable: { type: boolean }
+        expires_on: { type: string, format: date, nullable: true }
+        remove_upon_expiry: { type: boolean }
+        is_active: { type: boolean, readOnly: true }
+        activated_at: { type: string, nullable: true, readOnly: true }
+        changed_at: { type: string, nullable: true, readOnly: true }
+        storage_usage: { type: number, readOnly: true, description: Storage used in GB }
+        forwardings:
+          type: array
+          items: { type: string }
+          readOnly: true
+        daily_incoming_limit: { type: integer }
+        weekly_incoming_limit: { type: integer }
+        monthly_incoming_limit: { type: integer }
+        daily_outgoing_limit: { type: integer }
+        weekly_outgoing_limit: { type: integer }
+        monthly_outgoing_limit: { type: integer }
+
+    MailboxCreate:
+      type: object
+      required: [local_part]
+      properties:
+        local_part: { type: string }
+        name: { type: string, description: Display name }
+        password: { type: string, description: Required when password_method is "password" }
+        password_method:
+          type: string
+          enum: [password, invitation]
+          default: password
+        password_recovery_email:
+          type: string
+          format: email
+          description: Required when password_method is "invitation"
+        is_internal: { type: boolean, description: Only accept mail from within the domain }
+        forwarding_to: { type: string, format: email, description: External address to forward to on creation }
+
+    MailboxUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        password: { type: string, description: Sets a new password }
+        password_recovery_email: { type: string, format: email }
+        is_internal: { type: boolean }
+        wildcard_sender: { type: boolean }
+        may_send: { type: boolean }
+        may_receive: { type: boolean }
+        may_access_imap: { type: boolean }
+        may_access_pop3: { type: boolean }
+        may_access_managesieve: { type: boolean }
+        spam_action: { type: string }
+        spam_aggressiveness: { type: string }
+        sender_denylist: { $ref: "#/components/schemas/StringOrList" }
+        sender_allowlist: { $ref: "#/components/schemas/StringOrList" }
+        recipient_denylist: { $ref: "#/components/schemas/StringOrList" }
+
+    Identity:
+      type: object
+      properties:
+        local_part: { type: string, readOnly: true }
+        domain_name: { type: string, readOnly: true }
+        address: { type: string, readOnly: true }
+        name: { type: string }
+        password_use:
+          type: string
+          enum: [none, mailbox, custom]
+        may_send: { type: boolean }
+        may_receive: { type: boolean }
+        may_access_imap: { type: boolean }
+        may_access_pop3: { type: boolean }
+        may_access_managesieve: { type: boolean }
+
+    IdentityCreate:
+      type: object
+      required: [local_part]
+      properties:
+        local_part: { type: string }
+        name: { type: string }
+        password_use:
+          type: string
+          enum: [none, mailbox, custom]
+          default: none
+        password: { type: string, description: Required when password_use is "custom" }
+
+    IdentityUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        password: { type: string }
+        may_send: { type: boolean }
+        may_receive: { type: boolean }
+        may_access_imap: { type: boolean }
+        may_access_pop3: { type: boolean }
+        may_access_managesieve: { type: boolean }
+
+    Forwarding:
+      type: object
+      properties:
+        address: { type: string, format: email, readOnly: true }
+        blocked_at: { type: string, nullable: true, readOnly: true }
+        confirmation_sent_at: { type: string, nullable: true, readOnly: true }
+        confirmed_at: { type: string, nullable: true, readOnly: true }
+        expires_on: { type: string, format: date, nullable: true }
+        is_active: { type: boolean }
+        remove_upon_expiry: { type: boolean, nullable: true }
+
+    ForwardingCreate:
+      type: object
+      required: [address]
+      properties:
+        address: { type: string, format: email, description: External address to forward to }
+        expires_on: { type: string, format: date, description: Must be a future date }
+        is_active: { type: boolean, default: true }
+        remove_upon_expiry: { type: boolean }
+
+    ForwardingUpdate:
+      type: object
+      properties:
+        is_active: { type: boolean }
+        expires_on: { type: string, format: date, description: Must be a future date }
+        remove_upon_expiry: { type: boolean }
+
+    Alias:
+      type: object
+      properties:
+        local_part: { type: string, readOnly: true }
+        domain_name: { type: string, readOnly: true }
+        address: { type: string, readOnly: true }
+        is_internal: { type: boolean }
+        destinations:
+          type: array
+          items: { type: string }
+        expireable: { type: boolean }
+        expires_on: { type: string, format: date, nullable: true }
+        remove_upon_expiry: { type: boolean }
+
+    AliasCreate:
+      type: object
+      required: [local_part, destinations]
+      properties:
+        local_part: { type: string }
+        destinations:
+          allOf:
+            - $ref: "#/components/schemas/StringOrList"
+          description: Addresses on the same domain
+        is_internal: { type: boolean }
+
+    AliasUpdate:
+      type: object
+      properties:
+        destinations: { $ref: "#/components/schemas/StringOrList" }
+        is_internal: { type: boolean }
+
+    Rewrite:
+      type: object
+      properties:
+        name: { type: string, description: Slug identifier }
+        domain_name: { type: string, readOnly: true }
+        local_part_rule: { type: string, description: "Pattern with wildcards, e.g. demo-* "}
+        order_num: { type: integer }
+        destinations:
+          type: array
+          items: { type: string }
+
+    RewriteCreate:
+      type: object
+      required: [name, local_part_rule, destinations]
+      properties:
+        name: { type: string }
+        local_part_rule: { type: string }
+        destinations: { $ref: "#/components/schemas/StringOrList" }
+
+    RewriteUpdate:
+      type: object
+      properties:
+        name: { type: string, description: New slug name }
+        local_part_rule: { type: string }
+        destinations: { $ref: "#/components/schemas/StringOrList" }
