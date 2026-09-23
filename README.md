@@ -20,6 +20,7 @@ MCP-based integrations (first-party or hosted FastMCP) need no spec; their
 | Folder | Type | Notes |
 |---|---|---|
 | `migadu/` | OpenAPI | Migadu admin API — domains, mailboxes, identities, forwardings, aliases, rewrites |
+| `freeagent/` | OpenAPI | FreeAgent accounting API v2 — bookkeeping surface (bank, explanations, contacts, invoices, bills, journals). Two specs: production (`freeagent`) and sandbox (`freeagent_sandbox`) |
 
 ## Conventions
 
