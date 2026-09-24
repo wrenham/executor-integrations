@@ -43,6 +43,23 @@ URLs live in the spec.
   company connections sequentially.
 - A `User-Agent` header is mandatory; Executor sets its own.
 
+## Calling from `execute`
+
+Executor wraps arguments: query/path parameters are top-level, request bodies go under `body`.
+
+```ts
+tools.freeagent.org.wrenham.bankTransactions.listBankTransactions({ bank_account, view: "unexplained" })
+tools.freeagent.org.wrenham.contacts.createContact({ body: { contact: { organisation_name: "..." } } })
+```
+
+## Connections (Sept 2026)
+
+`freeagent_sandbox`: `freeagentSandboxAppExecutor` (Test Stores).
+`freeagent`: `wrenham` (Wrenham Ltd), `wiltshire`, `burlock`, `deadmor`, `fasola`, `lacquan`, `markroberts`,
+`matlock`, `namcotravel` (Namco Travel Ltd), `newforest`, `shadwell`, `verwood`, `winston`.
+All owner `org`; address `tools.freeagent.org.<name>.<group>.<tool>`. Enumerate with
+`tools.executor.coreTools.connections.list({})` and filter `integration === "freeagent"`.
+
 ## Deviations from the vendor docs
 
 None recorded yet — first live verification pending (sandbox, Sept 2026).
