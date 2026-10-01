@@ -1123,6 +1123,71 @@ paths:
                     items: { $ref: "#/components/schemas/TrialBalanceLine" }
         default: { $ref: "#/components/responses/Error" }
 
+  /accounting/transactions:
+    get:
+      tags: [Accounting]
+      operationId: listAccountingTransactions
+      summary: General ledger lines (every posting, by nominal code)
+      description: >
+        One entry per ledger posting. debit_value is signed (positive = debit,
+        negative = credit). source_item_url points at the bank explanation, invoice,
+        bill, journal entry etc. that created it. Paginate with page/per_page.
+      parameters:
+        - $ref: "#/components/parameters/fromDate"
+        - $ref: "#/components/parameters/toDate"
+        - name: nominal_code
+          in: query
+          description: Only postings to this nominal code (e.g. 001, 750-1, 901-1)
+          schema: { type: string }
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/perPage"
+      responses:
+        "200":
+          description: Ledger lines
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transactions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url: { type: string }
+                        dated_on: { type: string, format: date }
+                        created_at: { type: string, format: date-time }
+                        updated_at: { type: string, format: date-time }
+                        description: { type: string }
+                        category: { type: string }
+                        category_name: { type: string }
+                        nominal_code: { type: string }
+                        debit_value: { type: string }
+                        source_item_url: { type: string }
+                        foreign_currency_data: { type: object, additionalProperties: true }
+        default: { $ref: "#/components/responses/Error" }
+
+  /accounting/transactions/{id}:
+    get:
+      tags: [Accounting]
+      operationId: getAccountingTransaction
+      summary: A single general ledger line
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Ledger line
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction: { type: object, additionalProperties: true }
+        default: { $ref: "#/components/responses/Error" }
+
   /accounting/profit_and_loss/summary:
     get:
       tags: [Accounting]
